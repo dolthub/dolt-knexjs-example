@@ -1,104 +1,108 @@
 require("dotenv").config();
+const knex = require("knex");
 
 const database = process.env.DB_NAME;
-const db = require("knex")({
-  client: "mysql2",
-  connection: {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database,
+const config = {
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database,
 
-    // To use Hosted:
-    ssl: {
-      rejectUnauthorized: false,
-    },
+  // To use Hosted:
+  ssl: {
+    rejectUnauthorized: false,
   },
+};
+
+const db = knex({
+  client: "mysql2",
+  connection: { ...config },
   pool: { min: 0, max: 7 },
 });
 
 async function main() {
   await checkoutBranch("main");
-  await getActiveBranch();
+  await printActiveBranch();
 
   // Start fresh so we can re-run this script
   await resetDatabase();
 
-  await checkoutNewBranch("changes");
-
   // Build our tables
   await setupDatabase();
-  await getTables();
+  await printTables();
 
   // Our first Dolt feature. This will commit the first time
   // But after that nothing has changed so there is nothing to commit.
   await doltCommit("Taylor <taylor@dolthub.com>", "Created tables");
 
   // Examine a Dolt system table: dolt_log
-  await getCommitLog();
+  await printCommitLog();
 
   // Load rows into the tables
   await insertData();
-  await getSummary();
+  await printSummary();
 
   // Show off dolt_status and dolt_diff
-  await getStatus();
-  await getDiff("employees");
+  await printStatus();
+  await printDiff("employees");
 
   // Dolt commit our changes
   await doltCommit("Tim <tim@dolthub.com>", "Inserted data into tables");
-  await getCommitLog();
+  await printCommitLog();
 
   // Show off dolt_reset
   await dropTable("employee_teams");
-  await getStatus();
-  await getTables();
+  await printStatus();
+  await printTables();
   await doltResetHard();
-  await getStatus();
-  await getTables();
+  await printStatus();
+  await printTables();
 
-  // Show off branch and merge
-  await checkoutNewBranch("modify_data");
+  // // Show off branch and merge
+  await createBranch("modify_data");
+  await checkoutBranch("modify_data");
+  await printActiveBranch();
   await modifyData();
-  await getStatus();
-  await getDiff("employees");
-  await getDiff("employee_teams");
-  await getSummary();
+  await printStatus();
+  await printDiff("employees");
+  await printDiff("employee_teams");
+  await printSummary();
   await doltCommit("Brian <brian@dolthub.com>", "Modified data on branch");
-  await getCommitLog();
+  await printCommitLog();
 
-  // Switch back to changes because I want the same merge base
-  await checkoutBranch("changes");
-  await checkoutNewBranch("modify_schema");
-  await getActiveBranch();
+  // Switch back to main because I want the same merge base
+  await checkoutBranch("main");
+  await createBranch("modify_schema");
+  await checkoutBranch("modify_schema");
+  await printActiveBranch();
   await modifySchema();
-  await getStatus();
-  await getDiff("employees");
-  await getSummary();
+  await printStatus();
+  await printDiff("employees");
+  await printSummary();
   await doltCommit("Taylor <taylor@dolthub.com>", "Modified schema on branch");
-  await getCommitLog();
+  await printCommitLog();
 
   // Show off merge
-  await checkoutBranch("changes");
-  await getActiveBranch();
-  await getCommitLog();
-  await getSummary();
+  await checkoutBranch("main");
+  await printActiveBranch();
+  await printCommitLog();
+  await printSummary();
   await doltMerge("modify_data");
-  await getSummary();
-  await getCommitLog();
+  await printSummary();
+  await printCommitLog();
   await doltMerge("modify_schema");
-  await getSummary();
-  await getCommitLog();
+  await printSummary();
+  await printCommitLog();
 
   await db.destroy();
 }
 
 main();
 
-async function checkoutNewBranch(branch) {
-  await db.raw(`CALL DOLT_CHECKOUT('-b', ?)`, [branch]);
-  console.log("Using new branch:", branch);
+async function createBranch(branch) {
+  await db.raw(`CALL DOLT_BRANCH(?)`, [branch]);
+  console.log("Created branch:", branch);
 }
 
 async function checkoutBranch(branch) {
@@ -106,13 +110,19 @@ async function checkoutBranch(branch) {
   console.log("Using branch:", branch);
 }
 
-async function getActiveBranch() {
+async function printActiveBranch() {
   const branch = await db.raw(`SELECT ACTIVE_BRANCH()`);
   console.log("Active branch:", branch[0][0]["ACTIVE_BRANCH()"]);
 }
 
 async function resetDatabase() {
-  await db.raw("CALL DOLT_BRANCH('-D', 'changes')");
+  const logs = await db
+    .select("commit_hash")
+    .from("dolt_log")
+    .limit(1)
+    .orderBy("date", "asc");
+  await doltResetHard(logs[0].commit_hash);
+
   await db.raw("CALL DOLT_BRANCH('-D', 'modify_data')");
   await db.raw("CALL DOLT_BRANCH('-D', 'modify_schema')");
 }
@@ -137,7 +147,7 @@ async function setupDatabase() {
   });
 }
 
-async function getTables() {
+async function printTables() {
   const res = await db.raw("SHOW TABLES");
   const tables = res[0]
     .map((table) => table[`Tables_in_${database}`])
@@ -153,14 +163,14 @@ async function doltCommit(author, msg) {
   console.log("Created commit:", res[0][0].hash);
 }
 
-async function getCommitLog() {
+async function printCommitLog() {
   const res = await db
     .select("commit_hash", "committer", "message")
     .from("dolt_log")
     .orderBy("date", "desc");
   console.log("Commit log:");
   res.forEach((log) =>
-    console.log(`${log.commit_hash}: ${log.message} by ${log.committer}`)
+    console.log(`  ${log.commit_hash}: ${log.message} by ${log.committer}`)
   );
 }
 
@@ -195,7 +205,7 @@ async function insertData() {
     .merge();
 }
 
-async function getSummary() {
+async function printSummary() {
   // Get all employees columns because we change the schema
   const employeeCols = await db("employees").columnInfo();
   const cols = Object.keys(employeeCols)
@@ -210,33 +220,37 @@ async function getSummary() {
     .join("teams", "teams.id", "employee_teams.team_id")
     .orderBy("teams.name", "asc");
 
+  console.log("Summary:");
   res.forEach((row) => {
     let startDate = "";
     if ("start_date" in row) {
       startDate = row.start_date;
     }
 
-    console.log(`${row.name}: ${row.first_name} ${row.last_name} ${startDate}`);
+    console.log(
+      `  ${row.name}: ${row.first_name} ${row.last_name} ${startDate}`
+    );
   });
 }
 
-async function getStatus() {
+async function printStatus() {
   const res = await db.select("*").from("dolt_status");
   console.log("Status:");
   if (res.length === 0) {
-    console.log("No tables modified");
+    console.log("  No tables modified");
   } else {
     res.forEach((row) => {
-      console.log(`${row.table_name}: ${row.status}`);
+      console.log(`  ${row.table_name}: ${row.status}`);
     });
   }
 }
 
-async function getDiff(table) {
+async function printDiff(table) {
   const res = await db
     .select("*")
     .from(`dolt_diff_${table}`)
     .where("to_commit", "WORKING");
+  console.log(`Diff for ${table}:`);
   console.table(res);
 }
 
@@ -247,7 +261,7 @@ async function dropTable(table) {
 async function doltResetHard(commit) {
   if (commit) {
     await db.raw(`CALL DOLT_RESET('--hard', ?)`, [commit]);
-    console.log("Resetting to commit:");
+    console.log("Resetting to commit:", commit);
   } else {
     await db.raw(`CALL DOLT_RESET('--hard')`);
     console.log("Resetting to HEAD");
@@ -278,6 +292,7 @@ async function modifyData() {
         .del();
     });
   } catch (err) {
+    // Rolls back transaction
     console.error(err);
   }
 }
@@ -295,20 +310,15 @@ async function modifySchema() {
       await trx("employees").where("id", 3).update("start_date", "2021-04-19");
     });
   } catch (err) {
+    // Rolls back transaction
     console.error(err);
   }
 }
 
 async function doltMerge(branch) {
   const res = await db.raw(`CALL DOLT_MERGE(?)`, [branch]);
-  console.log(res);
   console.log("Merge complete for ", branch);
-  console.log(
-    "Commit:",
-    res[0][0].hash,
-    "Fast forward:",
-    res[0][0].fast_forward,
-    "Conflicts:",
-    res[0][0].conflicts
-  );
+  console.log(`  Commit: ${res[0][0].hash}`);
+  console.log(`  Fast forward: ${res[0][0].fast_forward}`);
+  console.log(`  Conflicts: ${res[0][0].conflicts}`);
 }
