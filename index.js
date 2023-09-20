@@ -1,23 +1,22 @@
 require("dotenv").config();
 const knex = require("knex");
+const fs = require("fs");
 
 const database = process.env.DB_NAME;
-const config = {
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database,
-
-  // To use Hosted:
-  ssl: {
-    rejectUnauthorized: false,
-  },
-};
 
 const db = knex({
   client: "mysql2",
-  connection: { ...config },
+  connection: {
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+
+    ssl: process.env.DB_SSL_PATH
+      ? { ca: fs.readFileSync(__dirname + process.env.DB_SSL_PATH) } // Can download certificate from Hosted Dolt
+      : false,
+  },
   pool: { min: 0, max: 7 },
 });
 
@@ -41,7 +40,7 @@ async function main() {
 
   // Load rows into the tables
   await insertData();
-  await printSummary();
+  await printSummaryTable();
 
   // Show off dolt_status and dolt_diff
   await printStatus();
@@ -52,26 +51,26 @@ async function main() {
   await printCommitLog();
 
   // Show off dolt_reset
-  await dropTable("employee_teams");
+  await dropTable("employees_teams");
   await printStatus();
   await printTables();
   await doltResetHard();
   await printStatus();
   await printTables();
 
-  // // Show off branch and merge
+  // // // Show off branch and merge
   await createBranch("modify_data");
   await checkoutBranch("modify_data");
   await printActiveBranch();
   await modifyData();
   await printStatus();
   await printDiff("employees");
-  await printDiff("employee_teams");
-  await printSummary();
+  await printDiff("employees_teams");
+  await printSummaryTable();
   await doltCommit("Brian <brian@dolthub.com>", "Modified data on branch");
   await printCommitLog();
 
-  // Switch back to main because I want the same merge base
+  // // Switch back to main because I want the same merge base
   await checkoutBranch("main");
   await createBranch("modify_schema");
   await checkoutBranch("modify_schema");
@@ -79,20 +78,20 @@ async function main() {
   await modifySchema();
   await printStatus();
   await printDiff("employees");
-  await printSummary();
+  await printSummaryTable();
   await doltCommit("Taylor <taylor@dolthub.com>", "Modified schema on branch");
   await printCommitLog();
 
-  // Show off merge
+  // // Show off merge
   await checkoutBranch("main");
   await printActiveBranch();
   await printCommitLog();
-  await printSummary();
+  await printSummaryTable();
   await doltMerge("modify_data");
-  await printSummary();
+  await printSummaryTable();
   await printCommitLog();
   await doltMerge("modify_schema");
-  await printSummary();
+  await printSummaryTable();
   await printCommitLog();
 
   await db.destroy();
@@ -101,8 +100,16 @@ async function main() {
 main();
 
 async function createBranch(branch) {
-  await db.raw(`CALL DOLT_BRANCH(?)`, [branch]);
-  console.log("Created branch:", branch);
+  const res = await db
+    .select("name")
+    .from("dolt_branches")
+    .where("name", branch);
+  if (res.length > 0) {
+    console.log("Branch exists:", branch);
+  } else {
+    await db.raw(`CALL DOLT_BRANCH(?)`, [branch]);
+    console.log("Created branch:", branch);
+  }
 }
 
 async function checkoutBranch(branch) {
@@ -137,7 +144,7 @@ async function setupDatabase() {
     table.integer("id").primary();
     table.string("name");
   });
-  await db.schema.createTable("employee_teams", (table) => {
+  await db.schema.createTable("employees_teams", (table) => {
     table
       .integer("employee_id")
       .references("id")
@@ -193,7 +200,7 @@ async function insertData() {
     .onConflict()
     .merge();
 
-  await db("employee_teams")
+  await db("employees_teams")
     .insert([
       { employee_id: 0, team_id: 0 },
       { employee_id: 1, team_id: 0 },
@@ -205,28 +212,32 @@ async function insertData() {
     .merge();
 }
 
-async function printSummary() {
+async function printSummaryTable() {
   // Get all employees columns because we change the schema
-  const employeeCols = await db("employees").columnInfo();
-  const cols = Object.keys(employeeCols)
+  const colInfo = await db("employees").columnInfo();
+  const employeeCols = Object.keys(colInfo)
     .filter((col) => col !== "id")
     .map((col) => `employees.${col}`);
 
   // Dolt supports up to 12 table joins. Here we do a 3 table join.
   const res = await db
-    .select("teams.name", ...cols)
+    .select("teams.name", ...employeeCols)
     .from("employees")
-    .join("employee_teams", "employees.id", "employee_teams.employee_id")
-    .join("teams", "teams.id", "employee_teams.team_id")
+    .join("employees_teams", "employees.id", "employees_teams.employee_id")
+    .join("teams", "teams.id", "employees_teams.team_id")
     .orderBy("teams.name", "asc");
 
   console.log("Summary:");
   res.forEach((row) => {
     let startDate = "";
     if ("start_date" in row) {
-      startDate = row.start_date;
+      if (row.start_date === null) {
+        startDate = "None";
+      } else {
+        const d = new Date(row.start_date);
+        startDate = d.toDateString();
+      }
     }
-
     console.log(
       `  ${row.name}: ${row.first_name} ${row.last_name} ${startDate}`
     );
@@ -251,7 +262,7 @@ async function printDiff(table) {
     .from(`dolt_diff_${table}`)
     .where("to_commit", "WORKING");
   console.log(`Diff for ${table}:`);
-  console.table(res);
+  console.log(res);
 }
 
 async function dropTable(table) {
@@ -281,12 +292,12 @@ async function modifyData() {
         first_name: "Taylor",
       });
 
-      await trx("employee_teams").insert({
+      await trx("employees_teams").insert({
         employee_id: 4,
         team_id: 0,
       });
 
-      await trx("employee_teams")
+      await trx("employees_teams")
         .where("employee_id", 0)
         .where("employee_id", 1)
         .del();
