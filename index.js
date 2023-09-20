@@ -7,7 +7,6 @@ const database = process.env.DB_NAME;
 const poolConfig = { min: 0, max: 7 };
 
 const config = {
-  host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
@@ -21,7 +20,12 @@ const config = {
 
 const db = knex({
   client: "mysql2",
-  connection: config,
+  connection: { ...config, host: process.env.DB_HOST },
+  pool: poolConfig,
+});
+const readDb = knex({
+  client: "mysql2",
+  connection: { ...config, host: process.env.DB_READ_REPLICA_HOST },
   pool: poolConfig,
 });
 
@@ -100,16 +104,17 @@ async function main() {
   await printCommitLog();
 
   await db.destroy();
+  await readDb.destroy();
 }
 
 main();
 
 async function getBranches() {
-  return db.select("name").from("dolt_branches");
+  return readDb.select("name").from("dolt_branches");
 }
 
 async function getBranch(branch) {
-  return db.select("name").from("dolt_branches").where("name", branch);
+  return readDb.select("name").from("dolt_branches").where("name", branch);
 }
 
 async function createBranch(branch) {
@@ -124,11 +129,12 @@ async function createBranch(branch) {
 
 async function checkoutBranch(branch) {
   await db.raw(`CALL DOLT_CHECKOUT(?)`, [branch]);
+  await readDb.raw(`CALL DOLT_CHECKOUT(?)`, [branch]);
   console.log("Using branch:", branch);
 }
 
 async function printActiveBranch() {
-  const branch = await db.raw(`SELECT ACTIVE_BRANCH()`);
+  const branch = await readDb.raw(`SELECT ACTIVE_BRANCH()`);
   console.log("Active branch:", branch[0][0]["ACTIVE_BRANCH()"]);
 }
 
@@ -142,7 +148,7 @@ async function deleteNonMainBranches() {
 }
 
 async function resetDatabase() {
-  const logs = await db
+  const logs = await readDb
     .select("commit_hash")
     .from("dolt_log")
     .limit(1)
@@ -169,7 +175,7 @@ async function setupDatabase() {
 }
 
 async function printTables() {
-  const res = await db.raw("SHOW TABLES");
+  const res = await readDb.raw("SHOW TABLES");
   const tables = res[0]
     .map((table) => table[`Tables_in_${database}`])
     .join(", ");
@@ -185,7 +191,7 @@ async function doltCommit(author, msg) {
 }
 
 async function printCommitLog() {
-  const res = await db
+  const res = await readDb
     .select("commit_hash", "committer", "message")
     .from("dolt_log")
     .orderBy("date", "desc");
@@ -219,13 +225,13 @@ async function insertData() {
 
 async function printSummaryTable() {
   // Get all employees columns because we change the schema
-  const colInfo = await db("employees").columnInfo();
+  const colInfo = await readDb("employees").columnInfo();
   const employeeCols = Object.keys(colInfo)
     .filter((col) => col !== "id")
     .map((col) => `employees.${col}`);
 
   // Dolt supports up to 12 table joins. Here we do a 3 table join.
-  const res = await db
+  const res = await readDb
     .select("teams.name", ...employeeCols)
     .from("employees")
     .join("employees_teams", "employees.id", "employees_teams.employee_id")
@@ -250,7 +256,7 @@ async function printSummaryTable() {
 }
 
 async function printStatus() {
-  const res = await db.select("*").from("dolt_status");
+  const res = await readDb.select("*").from("dolt_status");
   console.log("Status:");
   if (res.length === 0) {
     console.log("  No tables modified");
@@ -262,7 +268,7 @@ async function printStatus() {
 }
 
 async function printDiff(table) {
-  const res = await db
+  const res = await readDb
     .select("*")
     .from(`dolt_diff_${table}`)
     .where("to_commit", "WORKING");
