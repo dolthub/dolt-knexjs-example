@@ -104,11 +104,16 @@ async function main() {
 
 main();
 
+async function getBranches() {
+  return db.select("name").from("dolt_branches");
+}
+
+async function getBranch(branch) {
+  return db.select("name").from("dolt_branches").where("name", branch);
+}
+
 async function createBranch(branch) {
-  const res = await db
-    .select("name")
-    .from("dolt_branches")
-    .where("name", branch);
+  const res = await getBranch(branch);
   if (res.length > 0) {
     console.log("Branch exists:", branch);
   } else {
@@ -127,6 +132,15 @@ async function printActiveBranch() {
   console.log("Active branch:", branch[0][0]["ACTIVE_BRANCH()"]);
 }
 
+async function deleteNonMainBranches() {
+  const branches = await getBranches();
+  await Promise.all(
+    branches
+      .filter((b) => b.name !== "main")
+      .map((b) => db.raw(`CALL DOLT_BRANCH('-D', ?)`, [b.name]))
+  );
+}
+
 async function resetDatabase() {
   const logs = await db
     .select("commit_hash")
@@ -134,9 +148,7 @@ async function resetDatabase() {
     .limit(1)
     .orderBy("date", "asc");
   await doltResetHard(logs[0].commit_hash);
-
-  await db.raw("CALL DOLT_BRANCH('-D', 'modify_data')");
-  await db.raw("CALL DOLT_BRANCH('-D', 'modify_schema')");
+  await deleteNonMainBranches();
 }
 
 async function setupDatabase() {
@@ -150,12 +162,9 @@ async function setupDatabase() {
     table.string("name");
   });
   await db.schema.createTable("employees_teams", (table) => {
-    table
-      .integer("employee_id")
-      .references("id")
-      .inTable("employees")
-      .primary();
-    table.integer("team_id").references("id").inTable("teams").primary();
+    table.integer("employee_id").references("id").inTable("employees");
+    table.integer("team_id").references("id").inTable("teams");
+    table.primary(["employee_id", "team_id"]);
   });
 }
 
@@ -187,34 +196,25 @@ async function printCommitLog() {
 }
 
 async function insertData() {
-  await db("employees")
-    .insert([
-      { id: 0, last_name: "Sehn", first_name: "Tim" },
-      { id: 1, last_name: "Hendriks", first_name: "Brian" },
-      { id: 2, last_name: "Son", first_name: "Aaron" },
-      { id: 3, last_name: "Fitzgerald", first_name: "Brian" },
-    ])
-    .onConflict()
-    .merge();
+  await db("employees").insert([
+    { id: 0, last_name: "Sehn", first_name: "Tim" },
+    { id: 1, last_name: "Hendriks", first_name: "Brian" },
+    { id: 2, last_name: "Son", first_name: "Aaron" },
+    { id: 3, last_name: "Fitzgerald", first_name: "Brian" },
+  ]);
 
-  await db("teams")
-    .insert([
-      { id: 0, name: "Engineering" },
-      { id: 1, name: "Sales" },
-    ])
-    .onConflict()
-    .merge();
+  await db("teams").insert([
+    { id: 0, name: "Engineering" },
+    { id: 1, name: "Sales" },
+  ]);
 
-  await db("employees_teams")
-    .insert([
-      { employee_id: 0, team_id: 0 },
-      { employee_id: 1, team_id: 0 },
-      { employee_id: 2, team_id: 0 },
-      { employee_id: 0, team_id: 1 },
-      { employee_id: 3, team_id: 1 },
-    ])
-    .onConflict()
-    .merge();
+  await db("employees_teams").insert([
+    { employee_id: 0, team_id: 0 },
+    { employee_id: 1, team_id: 0 },
+    { employee_id: 2, team_id: 0 },
+    { employee_id: 0, team_id: 1 },
+    { employee_id: 3, team_id: 1 },
+  ]);
 }
 
 async function printSummaryTable() {
