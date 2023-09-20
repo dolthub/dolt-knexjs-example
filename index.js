@@ -25,7 +25,7 @@ const db = knex({
 });
 const readDb = knex({
   client: "mysql2",
-  connection: { ...config, host: process.env.DB_STANDBY_HOST },
+  connection: { ...config, host: process.env.DB_READ_REPLICA_HOST },
   pool: poolConfig,
 });
 
@@ -110,11 +110,11 @@ async function main() {
 main();
 
 async function getBranches() {
-  return db.select("name").from("dolt_branches");
+  return readDb.select("name").from("dolt_branches");
 }
 
 async function getBranch(branch) {
-  return db.select("name").from("dolt_branches").where("name", branch);
+  return readDb.select("name").from("dolt_branches").where("name", branch);
 }
 
 async function createBranch(branch) {
@@ -148,7 +148,7 @@ async function deleteNonMainBranches() {
 }
 
 async function resetDatabase() {
-  const logs = await db
+  const logs = await readDb
     .select("commit_hash")
     .from("dolt_log")
     .limit(1)

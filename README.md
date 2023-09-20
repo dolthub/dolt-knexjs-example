@@ -20,7 +20,7 @@ Add a `.env` file with the following fields:
 
 ```shell
 DB_HOST="host"
-DB_STANDBY_HOST="standby-host"
+DB_READ_REPLICA_HOST="read-replica-host"
 DB_PORT=3306
 DB_USER="username"
 DB_PASSWORD="password"
