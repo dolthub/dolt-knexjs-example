@@ -4,20 +4,25 @@ const fs = require("fs");
 
 const database = process.env.DB_NAME;
 
+const poolConfig = { min: 0, max: 7 };
+
+const config = {
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database,
+
+  // To use Hosted:
+  ssl: process.env.DB_SSL_PATH
+    ? { ca: fs.readFileSync(__dirname + process.env.DB_SSL_PATH) } // Can download certificate from Hosted Dolt
+    : false,
+};
+
 const db = knex({
   client: "mysql2",
-  connection: {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-
-    ssl: process.env.DB_SSL_PATH
-      ? { ca: fs.readFileSync(__dirname + process.env.DB_SSL_PATH) } // Can download certificate from Hosted Dolt
-      : false,
-  },
-  pool: { min: 0, max: 7 },
+  connection: config,
+  pool: poolConfig,
 });
 
 async function main() {
@@ -58,7 +63,7 @@ async function main() {
   await printStatus();
   await printTables();
 
-  // // // Show off branch and merge
+  // Show off branch and merge
   await createBranch("modify_data");
   await checkoutBranch("modify_data");
   await printActiveBranch();
@@ -70,7 +75,7 @@ async function main() {
   await doltCommit("Brian <brian@dolthub.com>", "Modified data on branch");
   await printCommitLog();
 
-  // // Switch back to main because I want the same merge base
+  // Switch back to main because I want the same merge base
   await checkoutBranch("main");
   await createBranch("modify_schema");
   await checkoutBranch("modify_schema");
@@ -82,7 +87,7 @@ async function main() {
   await doltCommit("Taylor <taylor@dolthub.com>", "Modified schema on branch");
   await printCommitLog();
 
-  // // Show off merge
+  // Show off merge
   await checkoutBranch("main");
   await printActiveBranch();
   await printCommitLog();
