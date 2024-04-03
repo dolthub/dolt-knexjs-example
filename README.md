@@ -1,6 +1,6 @@
 # Getting started with [Dolt](https://doltdb.com) and [Knex.js](https://knexjs.org/)
 
-The code is described in detail in [this blog]().
+The code is described in detail in [this blog](https://www.dolthub.com/blog/2023-09-27-dolt-and-knexjs/).
 
 ## Installation
 
