@@ -20,7 +20,7 @@ const config = {
 };
 
 const db = knex({
-  client: "mysql2",
+  client: "postgres",
   connection: config,
   pool: poolConfig,
 });
@@ -117,19 +117,19 @@ async function createBranch(branch) {
   if (res.length > 0) {
     console.log("Branch exists:", branch);
   } else {
-    await db.raw(`CALL DOLT_BRANCH(?)`, [branch]);
+    await db.raw(`SELECT DOLT_BRANCH(?::text)`, [branch]);
     console.log("Created branch:", branch);
   }
 }
 
 async function checkoutBranch(branch) {
-  await db.raw(`CALL DOLT_CHECKOUT(?)`, [branch]);
+  await db.raw(`SELECT DOLT_CHECKOUT(?::text)`, [branch]);
   console.log("Using branch:", branch);
 }
 
 async function printActiveBranch() {
   const branch = await db.raw(`SELECT ACTIVE_BRANCH()`);
-  console.log("Active branch:", branch[0][0]["ACTIVE_BRANCH()"]);
+  console.log("Active branch:", branch.rows[0].active_branch);
 }
 
 async function deleteNonMainBranches() {
@@ -137,16 +137,17 @@ async function deleteNonMainBranches() {
   await Promise.all(
     branches
       .filter((b) => b.name !== "main")
-      .map((b) => db.raw(`CALL DOLT_BRANCH('-D', ?)`, [b.name]))
+      .map((b) => db.raw(`SELECT DOLT_BRANCH('-D', ?::text)`, [b.name]))
   );
 }
 
 async function resetDatabase() {
   const logs = await db
-    .select("commit_hash")
+    .select("commit_hash", "message", "date")
     .from("dolt_log")
-    .limit(1)
+    // .limit(1) // TODO: https://github.com/dolthub/doltgresql/issues/1360
     .orderBy("date", "asc");
+  await doltClean();
   await doltResetHard(logs[0].commit_hash);
   await deleteNonMainBranches();
 }
@@ -169,19 +170,19 @@ async function setupDatabase() {
 }
 
 async function printTables() {
-  const res = await db.raw("SHOW TABLES");
-  const tables = res[0]
-    .map((table) => table[`Tables_in_${database}`])
-    .join(", ");
+  const res = await db.raw(
+    "SELECT * FROM pg_tables WHERE schemaname = 'public'"
+  );
+  const tables = res.rows.map((table) => table.tablename).join(", ");
   console.log("Tables in database:", tables);
 }
 
 async function doltCommit(author, msg) {
-  const res = await db.raw(`CALL DOLT_COMMIT('--author', ?, '-Am', ?)`, [
-    author,
-    msg,
-  ]);
-  console.log("Created commit:", res[0][0].hash);
+  const res = await db.raw(
+    `SELECT DOLT_COMMIT('--author', ?::text, '-Am', ?::text)`,
+    [author, msg]
+  );
+  console.log("Created commit:", res.rows[0].dolt_commit[0]);
 }
 
 async function printCommitLog() {
@@ -274,12 +275,19 @@ async function dropTable(table) {
   await db.schema.dropTable(table);
 }
 
+async function doltClean() {
+  const res = await db.raw(
+    `SELECT DOLT_CLEAN('employees', 'teams', 'employees_teams')` // TODO: No arguments https://github.com/dolthub/doltgresql/issues/1361
+  );
+  console.log("Cleaning", res.rows[0].dolt_clean);
+}
+
 async function doltResetHard(commit) {
   if (commit) {
-    await db.raw(`CALL DOLT_RESET('--hard', ?)`, [commit]);
+    await db.raw(`SELECT DOLT_RESET('--hard', ?::text)`, [commit]);
     console.log("Resetting to commit:", commit);
   } else {
-    await db.raw(`CALL DOLT_RESET('--hard')`);
+    await db.raw(`SELECT DOLT_RESET('--hard')`);
     console.log("Resetting to HEAD");
   }
 }
@@ -332,9 +340,10 @@ async function modifySchema() {
 }
 
 async function doltMerge(branch) {
-  const res = await db.raw(`CALL DOLT_MERGE(?)`, [branch]);
+  const res = await db.raw(`SELECT DOLT_MERGE(?::text)`, [branch]);
   console.log("Merge complete for ", branch);
-  console.log(`  Commit: ${res[0][0].hash}`);
-  console.log(`  Fast forward: ${res[0][0].fast_forward}`);
-  console.log(`  Conflicts: ${res[0][0].conflicts}`);
+  const mergeRes = res.rows[0].dolt_merge;
+  console.log(`  Commit: ${mergeRes[0]}`);
+  console.log(`  Fast forward: ${mergeRes[1]}`);
+  console.log(`  Conflicts: ${mergeRes[2]}`);
 }
