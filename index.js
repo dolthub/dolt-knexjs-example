@@ -40,14 +40,14 @@ async function main() {
   // But after that nothing has changed so there is nothing to commit.
   await doltCommit("Taylor <taylor@dolthub.com>", "Created tables");
 
-  // Examine a Dolt system table: dolt_log
+  // Examine a Dolt system table: dolt.log
   await printCommitLog();
 
   // Load rows into the tables
   await insertData();
   await printSummaryTable();
 
-  // Show off dolt_status and dolt_diff
+  // Show off dolt.status and dolt.diff
   await printStatus();
   await printDiff("employees");
 
@@ -105,11 +105,11 @@ async function main() {
 main();
 
 async function getBranches() {
-  return db.select("name").from("dolt_branches");
+  return db.select("name").from("dolt.branches");
 }
 
 async function getBranch(branch) {
-  return db.select("name").from("dolt_branches").where("name", branch);
+  return db.select("name").from("dolt.branches").where("name", branch);
 }
 
 async function createBranch(branch) {
@@ -144,7 +144,7 @@ async function deleteNonMainBranches() {
 async function resetDatabase() {
   const logs = await db
     .select("commit_hash", "message", "date")
-    .from("dolt_log")
+    .from("dolt.log")
     // .limit(1) // TODO: https://github.com/dolthub/doltgresql/issues/1360
     .orderBy("date", "asc");
   await doltClean();
@@ -188,7 +188,7 @@ async function doltCommit(author, msg) {
 async function printCommitLog() {
   const res = await db
     .select("commit_hash", "committer", "message")
-    .from("dolt_log")
+    .from("dolt.log")
     .orderBy("date", "desc");
   console.log("Commit log:");
   res.forEach((log) =>
@@ -251,7 +251,7 @@ async function printSummaryTable() {
 }
 
 async function printStatus() {
-  const res = await db.select("*").from("dolt_status");
+  const res = await db.select("*").from("dolt.status");
   console.log("Status:");
   if (res.length === 0) {
     console.log("  No tables modified");
