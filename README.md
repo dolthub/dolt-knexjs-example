@@ -1,6 +1,6 @@
-# Getting started with [Dolt](https://doltdb.com) and [Knex.js](https://knexjs.org/)
+# Getting started with [Doltgres](https://github.com/dolthub/doltgresql) and [Knex.js](https://knexjs.org/)
 
-The code is described in detail in [this blog](https://www.dolthub.com/blog/2023-09-27-dolt-and-knexjs/).
+The code is described in detail in [this blog](https://www.dolthub.com/blog/2025-04-21-doltgres-and-knexjs/).
 
 ## Installation
 
@@ -20,8 +20,8 @@ Add a `.env` file with the following fields:
 
 ```shell
 DB_HOST="host"
-DB_PORT=3306
-DB_USER="username"
+DB_PORT=5432
+DB_USER="postgres"
 DB_PASSWORD="password"
-DB_NAME="database"
+DB_NAME="postgres"
 ```
