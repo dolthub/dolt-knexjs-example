@@ -1,6 +1,6 @@
 # Getting started with [Doltgres](https://github.com/dolthub/doltgresql) and [Knex.js](https://knexjs.org/)
 
-The code is described in detail in [this blog]().
+The code is described in detail in [this blog](https://www.dolthub.com/blog/2025-04-21-doltgres-and-knexjs/).
 
 ## Installation
 
